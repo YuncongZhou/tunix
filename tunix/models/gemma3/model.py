@@ -17,7 +17,7 @@
 import dataclasses
 import enum
 import itertools
-from typing import Tuple
+from typing import Sequence, Tuple
 
 import flax
 from flax import nnx
@@ -98,6 +98,7 @@ class ModelConfig:
   num_heads: int
   head_dim: int
   num_kv_heads: int
+  layer_types: Sequence[str] | None = None
   sliding_window_size: int | None = None
   local_base_frequency: int = 10_000
   global_base_frequency: int = 10_000
@@ -889,6 +890,15 @@ class Gemma3(nnx.Module):
         shd_config=config.shd_config,
         param_dtype=config.param_dtype,
     )
+    if config.layer_types:
+      pattern = [
+          AttentionType.LOCAL_SLIDING
+          if t in ('sliding', 'local')
+          else AttentionType.GLOBAL
+          for t in config.layer_types
+      ]
+    else:
+      pattern = itertools.cycle(GEMMA3_ATTENTION_PATTERN)
     self.layers = compat.ModuleList([
         Block(
             num_heads=config.num_heads,
@@ -910,9 +920,7 @@ class Gemma3(nnx.Module):
             remat_config=config.remat_config,
             param_dtype=config.param_dtype,
         )
-        for _, attn_type in zip(
-            range(config.num_layers), itertools.cycle(GEMMA3_ATTENTION_PATTERN)
-        )
+        for _, attn_type in zip(range(config.num_layers), pattern)
     ])
     self.final_norm = RMSNorm(
         config.embed_dim,
